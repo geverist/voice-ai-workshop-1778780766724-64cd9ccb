@@ -1,4 +1,4 @@
-# 🎙️ ConversationRelay Starter Pack
+# ðï¸ ConversationRelay Starter Pack
 
 Your AI-powered voice assistant built with [Twilio ConversationRelay](https://www.twilio.com/docs/voice/conversationrelay).
 
@@ -6,7 +6,27 @@ This starter pack provides a complete foundation for building sophisticated voic
 
 **Use ANY LLM**: OpenAI, Anthropic Claude, Google Gemini, local models, or any text-based AI.
 
-## 🚀 Quick Start (GitHub Codespaces)
+
+---
+
+## 🎓 From Twilio Voice AI Workshop
+
+**If you completed the workshop:** This repository contains all your custom code from the workshop sessions! Your `.env.example` file includes your actual Twilio and OpenAI settings (with sensitive values masked). Simply:
+
+1. Copy `.env.example` to `.env.local`
+2. Fill in your actual API keys
+3. Deploy to Railway, Render, or any Node.js host
+4. Update your Twilio phone number webhook
+
+All your custom work is preserved:
+- ✅ **System Prompt** (`config/system-prompt.js`) - Your AI's personality
+- ✅ **Voice Handler** (`handlers/voice-handler.js`) - Your TwiML code
+- ✅ **WebSocket Handler** (`handlers/websocket-handler.js`) - Your ConversationRelay logic
+- ✅ **Tools** (`handlers/tools.js`) - Your function calling implementation
+
+---
+
+## ð Quick Start (GitHub Codespaces)
 
 The server should start automatically when you open this Codespace. If it doesn't:
 
@@ -23,7 +43,7 @@ Return to the workshop UI to continue!
 
 ---
 
-## 🚀 Quick Deploy
+## ð Quick Deploy
 
 ### Deploy to Railway
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/new)
@@ -34,52 +54,52 @@ Return to the workshop UI to continue!
 ### Deploy to Heroku
 [![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
 
-## 📋 Prerequisites
+## ð Prerequisites
 
 - **Twilio Account** - [Sign up for free](https://www.twilio.com/try-twilio)
 - **Twilio Phone Number** - With Voice capabilities
 - **OpenAI API Key** - [Get your API key](https://platform.openai.com/api-keys)
 - **Node.js 18+** - [Download Node.js](https://nodejs.org/)
 
-## 🏗️ Architecture
+## ðï¸ Architecture
 
 ```
-┌─────────────┐                                    ┌──────────────┐
-│   Caller    │ ◄──── Voice Audio ────────────────►│   Twilio     │
-│   (Phone)   │                                    │ ConversationRelay│
-└─────────────┘                                    └──────┬───────┘
-                                                          │
-                        ┌─────────────────────────────────┤
-                        │                                 │
+âââââââââââââââ                                    ââââââââââââââââ
+â   Caller    â âââââ Voice Audio âââââââââââââââââºâ   Twilio     â
+â   (Phone)   â                                    â ConversationRelayâ
+âââââââââââââââ                                    ââââââââ¬ââââââââ
+                                                          â
+                        âââââââââââââââââââââââââââââââââââ¤
+                        â                                 â
                    Text Transcripts              Voice Synthesis
                    (Deepgram STT)               (ElevenLabs TTS)
-                        │                                 │
-                        ▼                                 ▲
-                ┌──────────────────┐                     │
-                │  Your Server     │──── Text Response ──┘
-                │  (WebSocket)     │
-                └────────┬─────────┘
-                         │
+                        â                                 â
+                        â¼                                 â²
+                ââââââââââââââââââââ                     â
+                â  Your Server     âââââ Text Response âââ
+                â  (WebSocket)     â
+                ââââââââââ¬ââââââââââ
+                         â
                     Text to LLM
-                         │
-                         ▼
-                ┌──────────────────┐
-                │   Your LLM       │
-                │ (OpenAI, Claude, │
-                │  Gemini, etc.)   │
-                └──────────────────┘
+                         â
+                         â¼
+                ââââââââââââââââââââ
+                â   Your LLM       â
+                â (OpenAI, Claude, â
+                â  Gemini, etc.)   â
+                ââââââââââââââââââââ
 ```
 
 ### How It Works
 
-1. **Incoming Call** → Twilio calls your `/voice-handler` endpoint
-2. **TwiML Response** → Your server returns ConversationRelay TwiML
-3. **WebSocket Connection** → Twilio connects to your WebSocket server
-4. **Speech-to-Text** → Twilio (Deepgram) converts caller speech to text → sends `prompt` event
-5. **AI Processing** → Your server sends text to ANY LLM (OpenAI, Claude, etc.)
-6. **Text Response** → Your server sends back text → Twilio speaks it (ElevenLabs TTS)
+1. **Incoming Call** â Twilio calls your `/voice-handler` endpoint
+2. **TwiML Response** â Your server returns ConversationRelay TwiML
+3. **WebSocket Connection** â Twilio connects to your WebSocket server
+4. **Speech-to-Text** â Twilio (Deepgram) converts caller speech to text â sends `prompt` event
+5. **AI Processing** â Your server sends text to ANY LLM (OpenAI, Claude, etc.)
+6. **Text Response** â Your server sends back text â Twilio speaks it (ElevenLabs TTS)
 
-## 🛠️ Local Setup
+## ð ï¸ Local Setup
 
 ### 1. Clone Repository
 
@@ -144,7 +164,7 @@ Restart your server after adding `PUBLIC_URL`.
 
 ### 6. Configure Twilio Phone Number
 
-1. Go to [Twilio Console → Phone Numbers](https://console.twilio.com/us1/develop/phone-numbers/manage/incoming)
+1. Go to [Twilio Console â Phone Numbers](https://console.twilio.com/us1/develop/phone-numbers/manage/incoming)
 2. Click on your phone number
 3. Under **Voice & Fax**, set:
    - **A Call Comes In**: Webhook, `https://your-ngrok-url.ngrok.io/voice-handler`, HTTP POST
@@ -154,24 +174,24 @@ Restart your server after adding `PUBLIC_URL`.
 
 Call your Twilio phone number and start talking to your AI!
 
-## 📝 Development Workflow
+## ð Development Workflow
 
 ### Project Structure
 
 ```
 conversationrelay-starter-pack/
-├── server.js                   # Express server + WebSocket setup
-├── handlers/
-│   ├── voice-handler.js        # TwiML generation (Step 4)
-│   ├── websocket-handler.js    # ConversationRelay logic (Steps 5-6)
-│   └── tools.js                # Function calling (Step 8)
-├── config/
-│   └── system-prompt.js        # AI personality (Step 7)
-├── public/
-│   └── index.html              # Status dashboard
-├── .env                        # Environment variables (DO NOT COMMIT)
-├── .env.example                # Example configuration
-└── package.json                # Dependencies
+âââ server.js                   # Express server + WebSocket setup
+âââ handlers/
+â   âââ voice-handler.js        # TwiML generation (Step 4)
+â   âââ websocket-handler.js    # ConversationRelay logic (Steps 5-6)
+â   âââ tools.js                # Function calling (Step 8)
+âââ config/
+â   âââ system-prompt.js        # AI personality (Step 7)
+âââ public/
+â   âââ index.html              # Status dashboard
+âââ .env                        # Environment variables (DO NOT COMMIT)
+âââ .env.example                # Example configuration
+âââ package.json                # Dependencies
 ```
 
 ### Step-by-Step Implementation
@@ -299,7 +319,7 @@ async function executeToolCall(toolName, args) {
 }
 ```
 
-## 🌐 Production Deployment
+## ð Production Deployment
 
 ### Railway Deployment
 
@@ -342,7 +362,7 @@ npm start
 - `PUBLIC_URL` (your server's public URL)
 - `PORT` (defaults to 3000)
 
-## 📊 Conversational Intelligence (Optional)
+## ð Conversational Intelligence (Optional)
 
 Add AI-powered call analytics to your application with Twilio Conversational Intelligence.
 
@@ -454,7 +474,7 @@ ws.on('close', async () => {
         })
       });
 
-      console.log('✅ CI Transcript created');
+      console.log('â CI Transcript created');
     }
   }
 });
@@ -502,7 +522,7 @@ const operators = await fetch(
 - [Intelligence API Reference](https://www.twilio.com/docs/voice/intelligence/api)
 - [Language Operators Catalog](https://www.twilio.com/docs/voice/intelligence/operators)
 
-## 🔒 Security Best Practices
+## ð Security Best Practices
 
 1. **Never commit `.env`** - Already in `.gitignore`
 2. **Use environment variables** - For all sensitive credentials
@@ -511,7 +531,7 @@ const operators = await fetch(
 5. **HTTPS only** - Always use HTTPS in production (HTTP not allowed for webhooks)
 6. **Rotate credentials** - Regularly rotate API keys and auth tokens
 
-## 🧪 Testing
+## ð§ª Testing
 
 ### Test Server Status
 
@@ -554,7 +574,7 @@ WS_URL=wss://your-codespace-url-3000.app.github.dev node test-websocket.js
 2. Watch server logs: `npm run dev`
 3. Check WebSocket connections in status dashboard: `http://localhost:3000`
 
-## 📚 Resources
+## ð Resources
 
 - [Twilio ConversationRelay Docs](https://www.twilio.com/docs/voice/conversationrelay)
 - [ConversationRelay WebSocket Messages](https://www.twilio.com/docs/voice/conversationrelay/websocket-messages)
@@ -564,7 +584,7 @@ WS_URL=wss://your-codespace-url-3000.app.github.dev node test-websocket.js
 - [Twilio Voice Webhooks](https://www.twilio.com/docs/voice/twiml)
 - [Node.js WebSocket (ws) Library](https://github.com/websockets/ws)
 
-## 🐛 Troubleshooting
+## ð Troubleshooting
 
 ### WebSocket Connection Fails
 
@@ -582,7 +602,7 @@ WS_URL=wss://your-codespace-url-3000.app.github.dev node test-websocket.js
 
 - Verify webhook URL is publicly accessible (test with curl)
 - Check webhook URL format: `https://your-domain.com/voice-handler`
-- View webhook logs in Twilio Console → Monitor → Logs → Errors
+- View webhook logs in Twilio Console â Monitor â Logs â Errors
 
 ### Call Connects but No Audio
 
@@ -591,15 +611,15 @@ WS_URL=wss://your-codespace-url-3000.app.github.dev node test-websocket.js
 - Check server logs for errors in the `prompt` event handler
 - Ensure system prompt is configured in `config/system-prompt.js`
 
-## 🤝 Contributing
+## ð¤ Contributing
 
 Contributions welcome! Please open an issue or submit a pull request.
 
-## 📄 License
+## ð License
 
 MIT License - feel free to use this starter pack for any project!
 
-## 💬 Support
+## ð¬ Support
 
 - [Twilio Support](https://support.twilio.com/)
 - [OpenAI Help Center](https://help.openai.com/)
@@ -607,4 +627,4 @@ MIT License - feel free to use this starter pack for any project!
 
 ---
 
-Built with ❤️ using [Twilio ConversationRelay](https://www.twilio.com/docs/voice/conversationrelay), [Deepgram STT](https://deepgram.com/), and [ElevenLabs TTS](https://elevenlabs.io/)
+Built with â¤ï¸ using [Twilio ConversationRelay](https://www.twilio.com/docs/voice/conversationrelay), [Deepgram STT](https://deepgram.com/), and [ElevenLabs TTS](https://elevenlabs.io/)
