@@ -1,247 +1,425 @@
-import OpenAI from 'openai';
-import systemPrompt from '../config/system-prompt.js';
-import tools from './tools.js';
-
 /**
- * WebSocket Handler - Manages ConversationRelay WebSocket connection
+ * WebSocket Handler - ConversationRelay Integration
  *
- * ConversationRelay Architecture:
- * - Twilio handles: Speech-to-Text (Deepgram), Text-to-Speech (ElevenLabs), audio streaming
- * - Your server handles: LLM processing (text-based), prompting, tools/functions
- *
- * You receive TEXT from Twilio (from Deepgram STT)
- * You send back TEXT to Twilio (Twilio uses ElevenLabs TTS to speak it)
- *
- * @param {WebSocket} ws - WebSocket connection from Twilio
- * @param {Object} config - Configuration object
+ * Handles real-time WebSocket connections for voice AI streaming.
+ * Customized during the Twilio Voice AI Workshop.
  */
-export default function websocketHandler(ws, config) {
-  const { streamSid, openaiApiKey, twilioClient } = config;
 
-  console.log(`📞 ConversationRelay connected: ${streamSid}`);
+exports.handler = async function(context, event, callback) {
+  const OpenAI = require('openai');
+  const twilio = require('twilio');
 
-  // Initialize OpenAI (or any other LLM)
-  const openai = new OpenAI({ apiKey: openaiApiKey });
+  const openai = new OpenAI({ apiKey: context.OPENAI_API_KEY });
+  const twilioClient = twilio(context.ACCOUNT_SID, context.AUTH_TOKEN);
 
-  // Store conversation history for context
-  const conversationHistory = [];
+  const response = new Twilio.Response();
+  response.setStatusCode(200);
 
-  // Store call metadata for Conversational Intelligence
-  let callSid = null;
-  let callMetadata = {
-    from: null,
-    to: null,
-    direction: null,
-    startTime: new Date().toISOString()
+  // Knowledge Base - Customize for your business
+  const knowledgeBase = '\n' +
+  '  Company: Acme Healthcare\n' +
+  '  Services: Primary care, vaccinations, annual checkups, lab work\n' +
+  '  Hours: Mon-Fri 9am-5pm, Sat 10am-2pm, Closed Sunday\n' +
+  '  Location: 123 Main St, San Francisco CA 94102\n' +
+  '  Phone: ' + (context.DEFAULT_TWILIO_NUMBER || '+1-555-0100') + '\n' +
+  '  Insurance: We accept Blue Cross, Aetna, UnitedHealthcare, Medicare\n' +
+  '  Parking: Free parking available in rear lot\n';
+
+  // Tool Definitions
+  const tools = [
+{
+      type: "function",
+      name: "check_availability",
+      description: "Check available appointment slots for a given date",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "Date (YYYY-MM-DD)" }
+        },
+        required: ["date"]
+      }
+    },
+    {
+      type: "function",
+      name: "book_appointment",
+      description: "Book an appointment for a customer",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "Date (YYYY-MM-DD)" },
+          time: { type: "string", description: "Time (HH:MM 24hr)" },
+          customerName: { type: "string", description: "Customer name" },
+          phone: { type: "string", description: "Phone number" },
+          service: { type: "string", description: "Service type" }
+        },
+        required: ["date", "time", "customerName", "phone"]
+      }
+    },
+    {
+      type: "function",
+      name: "send_confirmation_sms",
+      description: "Send appointment confirmation via SMS",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: { type: "string", description: "Customer phone" },
+          message: { type: "string", description: "Confirmation message" }
+        },
+        required: ["phone", "message"]
+      }
+    },
+    {
+      type: "function",
+      name: "send_sms",
+      description: "Send SMS message to customer",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Customer phone number (E.164 format)" },
+          message: { type: "string", description: "Message content (max 1600 chars)" }
+        },
+        required: ["to", "message"]
+      }
+    }
+  ];
+
+  // System Prompt - Critical for AI behavior!
+  // Best practices: Be specific, set boundaries, define personality
+  const systemPrompt = `You are Sarah, a professional medical receptionist for Acme Healthcare.
+
+ROLE & PERSONALITY:
+- Friendly but professional tone
+- Speak naturally, use conversational language
+- Show empathy and patience
+- Keep responses concise (under 3 sentences typically)
+
+COMPANY INFORMATION:
+${knowledgeBase}
+
+YOUR CAPABILITIES:
+You have access to three tools:
+1. check_availability - Check open appointment slots for a date
+2. book_appointment - Book confirmed appointments
+3. send_confirmation_sms - Send SMS confirmations
+
+WORKFLOW FOR BOOKING:
+1. Greet caller warmly and ask how you can help
+2. If booking, collect: preferred date, time, name, phone, service type
+3. Use check_availability to see open slots (say "Let me check that for you" first)
+4. Confirm ALL details before booking
+5. Use book_appointment once confirmed (say "I'm booking that for you now" first)
+6. Use send_confirmation_sms to send confirmation
+7. Provide appointment details verbally AND via SMS
+
+IMPORTANT GUIDELINES:
+- ALWAYS confirm date, time, name, and phone before booking
+- Use interstitials before tool calls ("Let me check...", "One moment...")
+- If caller is vague, ask clarifying questions
+- If no slots available, offer alternative dates
+- Keep HIPAA in mind - don't ask for sensitive medical info over phone
+- If you can't help, offer to transfer or take a message
+- End calls gracefully, ask if there's anything else
+
+RESPONSE STYLE:
+❌ DON'T: "I have checked the availability for the requested date and determined that..."
+✅ DO: "Let me check that for you... Great! We have openings at 9am, 11am, and 2pm. Which works best?"
+
+Remember: You're having a natural conversation, not reading a script!`;
+
+  // Handle WebSocket upgrade
+  if (!event.request || event.request.headers['upgrade'] !== 'websocket') {
+    response.setBody('WebSocket connection required');
+    return callback(null, response);
+  }
+
+  const ws = event.request;
+  console.log('WebSocket connected');
+
+  // STATE MANAGEMENT - Track where we are in the conversation
+  let conversationState = {
+    stage: 'greeting',           // greeting, collecting_info, confirming, booking, complete
+    appointmentData: {},         // Store collected information
+    lastPrompt: null,            // Track what we last asked
+    attemptCount: 0              // How many times we've tried to collect info
   };
 
-  // Handle incoming messages from Twilio ConversationRelay
-  ws.on('message', async (message) => {
+  // Store conversation history
+  const conversationHistory = [{ role: 'system', content: systemPrompt }];
+
+  // STATE-AWARE PROMPT INJECTION
+  // This function adds context based on current state
+  function getStateContext() {
+    const statePrompts = {
+      greeting: `
+        CURRENT STATE: Greeting/Initial Contact
+        - You just answered the call
+        - Ask how you can help today
+        - Listen for booking requests or questions
+      `,
+      collecting_info: `
+        CURRENT STATE: Collecting Appointment Information
+        - You're gathering: date, time, name, phone, service type
+        - Current data collected: ${JSON.stringify(conversationState.appointmentData)}
+        - Still need: ${getMissingFields().join(', ') || 'nothing - ready to confirm!'}
+        - Ask for ONE missing field at a time (don't overwhelm caller)
+        - Attempt #${conversationState.attemptCount} - if > 2, offer to have someone call them back
+      `,
+      confirming: `
+        CURRENT STATE: Confirming Details
+        - You have all information needed
+        - Data to confirm: ${JSON.stringify(conversationState.appointmentData)}
+        - Read back ALL details clearly
+        - Ask "Does that sound correct?" or "Should I book this for you?"
+        - If confirmed, proceed to booking
+        - If changes needed, go back to collecting_info
+      `,
+      booking: `
+        CURRENT STATE: Booking in Progress
+        - You're actively booking the appointment
+        - Use the book_appointment tool
+        - Don't ask more questions, just confirm booking
+      `,
+      complete: `
+        CURRENT STATE: Booking Complete
+        - Appointment is booked
+        - Confirm appointment details one final time
+        - Ask if there's anything else you can help with
+        - If no, end gracefully
+      `
+    };
+
+    return statePrompts[conversationState.stage] || '';
+  }
+
+  function getMissingFields() {
+    const required = ['date', 'time', 'customerName', 'phone'];
+    return required.filter(field => !conversationState.appointmentData[field]);
+  }
+
+  function updateState(userMessage) {
+    // Extract info from user message (simple pattern matching)
+    // In production, you'd use more sophisticated NER/entity extraction
+
+    // Check for date
+    const dateMatch = userMessage.match(/(d{4}-d{2}-d{2}|tomorrow|today|next week|monday|tuesday|wednesday|thursday|friday)/i);
+    if (dateMatch) conversationState.appointmentData.date = dateMatch[0];
+
+    // Check for time
+    const timeMatch = userMessage.match(/(d{1,2}:d{2}|d{1,2}s*(am|pm))/i);
+    if (timeMatch) conversationState.appointmentData.time = timeMatch[0];
+
+    // Check for phone
+    const phoneMatch = userMessage.match(/(d{3}[-.]?d{3}[-.]?d{4})/);
+    if (phoneMatch) conversationState.appointmentData.phone = phoneMatch[0];
+
+    const missing = getMissingFields();
+    if (conversationState.stage === 'greeting' && userMessage.match(/book|appointment|schedule/i)) {
+      conversationState.stage = 'collecting_info';
+    } else if (conversationState.stage === 'collecting_info' && missing.length === 0) {
+      conversationState.stage = 'confirming';
+    }
+
+    console.log('State updated:', conversationState);
+  }
+
+  ws.on('message', async (data) => {
     try {
-      const data = JSON.parse(message);
+      const message = JSON.parse(data);
 
-      switch (data.type) {
-        // ----------------------------------------------------------------------
-        // Event: SETUP - Initial connection with call metadata
-        // ----------------------------------------------------------------------
-        case 'setup':
-          console.log('📞 Call Setup:');
-          console.log('  Session ID:', data.sessionId);
-          console.log('  Call SID:', data.callSid);
-          console.log('  From:', data.from);
-          console.log('  To:', data.to);
-          console.log('  Direction:', data.direction);
-
-          // Store call metadata for Conversational Intelligence
-          callSid = data.callSid;
-          callMetadata.from = data.from;
-          callMetadata.to = data.to;
-          callMetadata.direction = data.direction;
-          callMetadata.sessionId = data.sessionId;
+      switch (message.event) {
+        case 'start':
+          console.log('Call started:', message.streamSid);
           break;
 
-        // ----------------------------------------------------------------------
-        // Event: PROMPT - Caller spoke, we got their words as TEXT
-        // ----------------------------------------------------------------------
-        case 'prompt':
-          console.log('🗣️ Caller said:', data.voicePrompt);
-          console.log('  Language:', data.lang);
-          console.log('  Is final:', data.last);
+        case 'transcript':
+          console.log('User said:', message.transcript);
 
-          // Add to conversation history
+          // Update conversation state based on user input
+          updateState(message.transcript);
+
+          // Add user message to history
           conversationHistory.push({
             role: 'user',
-            content: data.voicePrompt
+            content: message.transcript
           });
 
-          // ====================================================================
-          // AI PROCESSING: Send to your LLM (text-based)
-          // ====================================================================
-          // You can use ANY LLM here: OpenAI, Claude, Gemini, local models, etc.
-          // Twilio handles all the audio - you just process text!
-          try {
-            const completion = await openai.chat.completions.create({
-              model: 'gpt-4o-mini',  // Fast, affordable model
-              messages: [
-                {
-                  role: 'system',
-                  content: systemPrompt  // Your custom AI personality
-                },
-                ...conversationHistory
-              ],
-              max_tokens: 150,  // Keep responses concise for voice
-              temperature: 0.7
-            });
+          // Inject state-aware context
+          const stateContext = getStateContext();
+          conversationHistory.push({
+            role: 'system',
+            content: stateContext
+          });
 
-            const aiResponse = completion.choices[0].message.content;
-            console.log('🤖 AI response:', aiResponse);
+          // Call OpenAI with tools
+          const completion = await openai.chat.completions.create({
+            model: 'gpt-4',
+            messages: conversationHistory,
+            tools: tools,
+            tool_choice: 'auto'
+          });
 
-            // Add to conversation history
-            conversationHistory.push({
-              role: 'assistant',
-              content: aiResponse
-            });
+          const assistantMessage = completion.choices[0].message;
+          conversationHistory.push(assistantMessage);
 
-            // ==================================================================
-            // Send TEXT response back to Twilio
-            // Twilio will convert it to speech using ElevenLabs TTS
-            // ==================================================================
-            ws.send(JSON.stringify({
-              type: 'text',
-              token: aiResponse,
-              last: true  // Indicates this is the complete response
-            }));
+          if (assistantMessage.tool_calls) {
+            for (const toolCall of assistantMessage.tool_calls) {
+              const functionName = toolCall.function.name;
+              const functionArgs = JSON.parse(toolCall.function.arguments);
 
-          } catch (aiError) {
-            console.error('❌ LLM API error:', aiError);
+              console.log(`Calling tool: ${functionName}`, functionArgs);
 
-            // Send error response to caller
-            ws.send(JSON.stringify({
-              type: 'text',
-              token: 'I apologize, I encountered an error processing your request.',
-              last: true
-            }));
-          }
-          break;
+              // Execute the tool
+              let toolResult;
+              switch (functionName) {
+                case 'check_availability':
+                  toolResult = await checkAvailability(functionArgs);
+                  break;
+                case 'book_appointment':
+                  conversationState.stage = 'booking';
+                  toolResult = await bookAppointment(functionArgs);
+                  // Move to complete state after booking
+                  conversationState.stage = 'complete';
+                  break;
+                case 'send_confirmation_sms':
+                  toolResult = await sendConfirmationSMS(functionArgs, twilioClient, context);
+                  break;
+                default:
+                  toolResult = { error: 'Unknown tool' };
+              }
 
-        // ----------------------------------------------------------------------
-        // Event: DTMF - Caller pressed a keypad button
-        // ----------------------------------------------------------------------
-        case 'dtmf':
-          console.log('🔢 DTMF digit pressed:', data.digit);
-
-          // Handle keypad input (useful for IVR-style menus)
-          // Example: "Press 1 for sales, 2 for support"
-          if (data.digit === '1') {
-            ws.send(JSON.stringify({
-              type: 'text',
-              token: 'You pressed 1. Transferring to sales.',
-              last: true
-            }));
-          } else if (data.digit === '2') {
-            ws.send(JSON.stringify({
-              type: 'text',
-              token: 'You pressed 2. Transferring to support.',
-              last: true
-            }));
-          }
-          break;
-
-        // ----------------------------------------------------------------------
-        // Event: INTERRUPT - Caller interrupted the AI mid-sentence
-        // ----------------------------------------------------------------------
-        case 'interrupt':
-          console.log('⚠️ Caller interrupted at:', data.utteranceUntilInterrupt);
-          console.log('  Duration:', data.durationUntilInterruptMs, 'ms');
-
-          // Handle interruption
-          // You may want to cancel any pending LLM requests here
-          break;
-
-        // ----------------------------------------------------------------------
-        // Unknown events (log for debugging)
-        // ----------------------------------------------------------------------
-        default:
-          console.log('❓ Unknown event type:', data.type);
-      }
-
-    } catch (error) {
-      console.error('❌ Error parsing message:', error);
-    }
-  });
-
-  // Handle connection close
-  ws.on('close', async () => {
-    console.log(`📞 ConversationRelay disconnected: ${streamSid}`);
-
-    // =========================================================================
-    // CREATE CONVERSATIONAL INTELLIGENCE TRANSCRIPT
-    // =========================================================================
-    // This automatically creates a transcript for post-call analytics
-    if (callSid && process.env.CI_SERVICE_SID) {
-      try {
-        console.log('📊 Creating Conversational Intelligence transcript...');
-
-        // Get the recording SID from the call
-        const call = await twilioClient.calls(callSid).fetch();
-
-        // Get the most recent recording for this call
-        const recordings = await twilioClient.recordings.list({
-          callSid: callSid,
-          limit: 1
-        });
-
-        if (recordings.length > 0) {
-          const recordingSid = recordings[0].sid;
-          const mediaUrl = recordings[0].mediaUrl;
-
-          // Create transcript in Conversational Intelligence
-          const transcriptResponse = await fetch(
-            `https://intelligence.twilio.com/v2/Transcripts`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Basic ${Buffer.from(
-                  `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
-                ).toString('base64')}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
-              },
-              body: new URLSearchParams({
-                ServiceSid: process.env.CI_SERVICE_SID,
-                Channel: JSON.stringify({
-                  media_properties: {
-                    media_url: `https://api.twilio.com${mediaUrl}`
-                  }
-                }),
-                CustomerKey: callMetadata.from,
-                MediaStartTime: callMetadata.startTime
-              })
+              // Add tool result to conversation
+              conversationHistory.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: JSON.stringify(toolResult)
+              });
             }
-          );
 
-          if (transcriptResponse.ok) {
-            const transcriptData = await transcriptResponse.json();
-            console.log('✅ CI Transcript created:', transcriptData.sid);
-            console.log('   View analytics at: https://console.twilio.com/us1/develop/intelligence');
+            const finalCompletion = await openai.chat.completions.create({
+              model: 'gpt-4',
+              messages: conversationHistory
+            });
+
+            const finalMessage = finalCompletion.choices[0].message.content;
+            conversationHistory.push({ role: 'assistant', content: finalMessage });
+
+            // Send to caller
+            ws.send(JSON.stringify({
+              event: 'text',
+              text: finalMessage
+            }));
           } else {
-            const errorText = await transcriptResponse.text();
-            console.warn('⚠️ Failed to create CI transcript:', errorText);
+            // No tool call, just send AI response
+            ws.send(JSON.stringify({
+              event: 'text',
+              text: assistantMessage.content
+            }));
           }
-        } else {
-          console.warn('⚠️ No recording found for call:', callSid);
-        }
+          break;
 
-      } catch (ciError) {
-        console.error('❌ CI transcript creation error:', ciError);
-        // Don't fail the call disconnect if CI fails
+        case 'stop':
+          console.log('Call ended');
+          ws.close();
+          break;
       }
+    } catch (error) {
+      console.error('Error:', error);
+      ws.send(JSON.stringify({
+        event: 'text',
+        text: 'I apologize, but I encountered an error. Could you please repeat that?'
+      }));
     }
-
-    // Optional: Save conversation history to database
   });
 
-  // Handle errors
-  ws.on('error', (error) => {
-    console.error('❌ WebSocket error:', error);
-  });
-}
+  ws.on('error', (error) => console.error('WebSocket error:', error));
+  ws.on('close', () => console.log('WebSocket closed'));
+
+  callback(null, response);
+
+  // Tool Implementation Functions
+  async function checkAvailability(args) {
+    // TODO: Connect to your scheduling system
+    // This is a mock implementation
+    const { date } = args;
+    const availableSlots = ['9:00 AM', '11:00 AM', '2:00 PM', '4:00 PM'];
+    return {
+      date,
+      available: true,
+      slots: availableSlots,
+      message: `Available slots for ${date}: ${availableSlots.join(', ')}`
+    };
+  }
+
+  async function bookAppointment(args) {
+    // TODO: Connect to your scheduling system
+    // This is a mock implementation
+    const { date, time, customerName, phone, service } = args;
+    const appointmentId = 'APT-' + Date.now();
+
+    console.log('Booking appointment:', { date, time, customerName, phone, service });
+
+    return {
+      success: true,
+      appointmentId,
+      date,
+      time,
+      message: `Appointment booked! ID: ${appointmentId} for ${customerName} on ${date} at ${time}`
+    };
+  }
+
+  async function sendConfirmationSMS(args, twilioClient, context) {
+    try {
+      const { phone, message } = args;
+
+      const sms = await twilioClient.messages.create({
+        body: message,
+        from: context.DEFAULT_TWILIO_NUMBER,
+        to: phone
+      });
+
+      return {
+        success: true,
+        messageSid: sms.sid,
+        message: 'Confirmation SMS sent successfully'
+      };
+    } catch (error) {
+      console.error('SMS error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // ============================================
+  // SMS FUNCTION - Added from examples
+  // ============================================
+
+  async function sendSMS(args, twilioClient, context) {
+    try {
+      const { to, message } = args;
+  
+      const sms = await twilioClient.messages.create({
+        body: message,
+        from: context.DEFAULT_TWILIO_NUMBER,  // Your Twilio number
+        to: to
+      });
+  
+      return {
+        success: true,
+        messageSid: sms.sid,
+        status: sms.status,
+        message: 'SMS sent successfully'
+      };
+    } catch (error) {
+      console.error('SMS error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+  
+};
+
+module.exports = { handler: exports.handler };
